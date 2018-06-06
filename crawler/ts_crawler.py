@@ -47,7 +47,8 @@ def main(hrefs, start, end, output_dir='/workspace/run/data/ts_qiniu_many', forw
             m3u8 = re.search('https:.*?playlist.m3u8', html).group()
             req=urllib.request.Request(m3u8)
             resp=urllib.request.urlopen(req)
-
+            m3u8txt =resp.read().decode('utf-8')
+            
             for i in ['720', '576','480', '360', '240']:
                 tmp = re.search('x%s.*?m3u8' % i, m3u8txt.replace('\n', ''))
                 if tmp is not None:
@@ -89,7 +90,8 @@ if __name__ == '__main__':
         else:
             continue
 
-        pool = Pool(processes=args.cpus)
+        cpus = args.cpus
+        pool = Pool(processes=cpus)
         lin = np.linspace(0, len(hrefs), cpus + 1, dtype=np.int)
         for i in range(cpus):
             pool.apply_async(main, args=(hrefs, lin[i], lin[i + 1],))
