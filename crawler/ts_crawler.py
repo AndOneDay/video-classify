@@ -14,20 +14,18 @@ def parse_args():
     parser.add_argument('--url', type=str, default='http://ssex.com/tag/asian/', help="remote url to crawl")
     parser.add_argument('--forward',default=5,type=int,help="download number of ts ahead")
     parser.add_argument('--down_rooms',default=100,type=int,help="download number of rooms")  
-    parser.add_argument('--cpus',default=10,type=int,help="num of process")          
+    parser.add_argument('--cpus',default=10,type=int,help="num of process")
+    parser.add_argument('--bucket',type=str,help="qiniu bucket if not set will download ts to local")                        
     args = parser.parse_args()
     return args
     
 
-
 args = parse_args()
 
-def download_ts(cmd, method='local', qiniu_path='', bucket='ts02'):
-    if method == 'local':
+def download_ts(cmd, bucket=None, qiniu_path=''):
+    if bucket is None:
         os.system(cmd)
-    elif method == 'qiniu':
-        if qiniu_path == '':
-            return
+    elif qiniu_path != '':
         tmp = cmd.split(' ')
         url = tmp[1]
         os.system("qshell account elYxU2yfITGA45M2dL1up4k9IYc1ehgRWzrh22Sk PxfV1B2Mfy4NuT0OuDdnjGIe7V478kJ6v8wxwUy_")
@@ -35,12 +33,11 @@ def download_ts(cmd, method='local', qiniu_path='', bucket='ts02'):
         os.system(cmd)
         
 
-def main(hrefs, start, end, output_dir='/workspace/run/data/ts_qiniu_many', forward=5, down_list=100):
-
-    for k in range(start, end):
+def main(hrefs, bucket=None, output_dir='./', forward=5, down_list=100):
+    for href in hrefs:
         try:
-            url="http://ssex.com" + hrefs[k]
-            name = hrefs[k][1:]
+            url="http://ssex.com" + href
+            name = href[1:]
             req=urllib.request.Request(url)
             resp=urllib.request.urlopen(req)
             html =resp.read().decode('utf-8')
@@ -48,12 +45,10 @@ def main(hrefs, start, end, output_dir='/workspace/run/data/ts_qiniu_many', forw
             req=urllib.request.Request(m3u8)
             resp=urllib.request.urlopen(req)
             m3u8txt =resp.read().decode('utf-8')
-            
             for i in ['720', '576','480', '360', '240']:
                 tmp = re.search('x%s.*?m3u8' % i, m3u8txt.replace('\n', ''))
                 if tmp is not None:
                     tail = tmp.group()[4:]
-                    #print(tail)
                     break
             req=urllib.request.Request(m3u8[:-13] + tail)
             resp=urllib.request.urlopen(req)
@@ -63,17 +58,16 @@ def main(hrefs, start, end, output_dir='/workspace/run/data/ts_qiniu_many', forw
             new_cnt = int(meadia.split('_')[-1].split('.')[0])
 
             for i in range(new_cnt, new_cnt + forward):
-                    date = time.strftime("%Y-%m-%d", time.localtime())
-                    ts_url = m3u8[:-13] + meadia.replace(str(new_cnt), str(i))
-                    output_path = os.path.join(output_dir, name, date, str(i) + '.ts')
-                    if not os.path.exists(os.path.join(output_dir, name, date)):
-                        os.makedirs(os.path.join(output_dir, name, date))
-                    if (not os.path.exists(output_path)) or (os.path.getsize(output_path) == 0):
-                        cmd = 'curl %s --output %s' % (ts_url, output_path)
-                        qiniu_path = os.path.join(name, date, str(i) + '.ts')
-                        download_ts(cmd, 'qiniu', qiniu_path)
-                        #print('download,', i, end='\r')
-                        time.sleep(0.1)
+                date = time.strftime("%Y-%m-%d", time.localtime())
+                ts_url = m3u8[:-13] + meadia.replace(str(new_cnt), str(i))
+                output_path = os.path.join(output_dir, name, date, str(i) + '.ts')
+                if not os.path.exists(os.path.join(output_dir, name, date)) and bucket is None:
+                    os.makedirs(os.path.join(output_dir, name, date))
+                if (not os.path.exists(output_path)) or (os.path.getsize(output_path) == 0):
+                    cmd = 'curl %s --output %s' % (ts_url, output_path)
+                    qiniu_path = os.path.join(name, date, str(i) + '.ts')
+                    download_ts(cmd, bucket, qiniu_path)
+                    time.sleep(0.1)
 
         except Exception as e:
             print(e)
@@ -81,20 +75,28 @@ def main(hrefs, start, end, output_dir='/workspace/run/data/ts_qiniu_many', forw
 
 if __name__ == '__main__':
     while(1):
-        resp=requests.get(args.url)
-        if resp.status_code==requests.codes.ok:
-                html=etree.HTML(resp.text)
-                hrefs=html.xpath('//ul[@class="list"]/li/a/@href')
-    #             for href in hrefs:
-    #                 print(href)      
-        else:
-            continue
-
+        hrefs = set()
+        first_hrefs = None
+        for i in range(1, 5):
+            url = args.url
+            url += ('?page=' + str(i))
+            resp=requests.get(url)
+            if resp.status_code==requests.codes.ok:
+                    html=etree.HTML(resp.text)
+                    tmp_hrefs=html.xpath('//ul[@class="list"]/li/a/@href')
+                    if first_hrefs is None:
+                        first_hrefs = tmp_hrefs
+                    elif first_hrefs == tmp_hrefs:
+                        break
+                    hrefs.update(tmp_hrefs)
+            else:
+                continue
+        hrefs = list(hrefs)
         cpus = args.cpus
         pool = Pool(processes=cpus)
         lin = np.linspace(0, len(hrefs), cpus + 1, dtype=np.int)
         for i in range(cpus):
-            pool.apply_async(main, args=(hrefs, lin[i], lin[i + 1],))
+            pool.apply_async(main, args=(hrefs[lin[i]: lin[i + 1]], args.bucket,))
 
         pool.close()
         pool.join()
