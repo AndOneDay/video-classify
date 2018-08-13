@@ -3,6 +3,7 @@ from tqdm import tqdm
 from multiprocessing import Pool
 import numpy as np
 import time
+import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser(description="ts crawler", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
